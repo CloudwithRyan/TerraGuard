@@ -50,3 +50,14 @@ resource "aws_s3_bucket_public_access_block" "shipment_data" {
   ignore_public_acls      = true
   restrict_public_buckets = true
 }
+
+# Remediation 2: Enable server-side encryption using AES-256.
+resource "aws_s3_bucket_server_side_encryption_configuration" "shipment_data" {
+  bucket = aws_s3_bucket.shipment_data.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
