@@ -61,3 +61,11 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "shipment_data" {
     }
   }
 }
+# Remediation 3: Enable versioning to protect against accidental deletion and overwrites.
+resource "aws_s3_bucket_versioning" "shipment_data" {
+  bucket = aws_s3_bucket.shipment_data.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
