@@ -69,3 +69,39 @@ resource "aws_s3_bucket_versioning" "shipment_data" {
     status = "Enabled"
   }
 }
+# Remediation 4: Create a separate bucket to store S3 access logs.
+resource "aws_s3_bucket" "shipment_logs" {
+  bucket = "shipfleet-shipment-access-logs-demo"
+
+  tags = {
+    Name = "ShipFleet Shipment Access Logs"
+  }
+}
+
+# Secure the logging bucket against public access.
+resource "aws_s3_bucket_public_access_block" "shipment_logs" {
+  bucket = aws_s3_bucket.shipment_logs.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+# Encrypt access logs at rest using AES-256.
+resource "aws_s3_bucket_server_side_encryption_configuration" "shipment_logs" {
+  bucket = aws_s3_bucket.shipment_logs.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+# Enable access logging on the shipment data bucket.
+resource "aws_s3_bucket_logging" "shipment_data" {
+  bucket        = aws_s3_bucket.shipment_data.id
+  target_bucket = aws_s3_bucket.shipment_logs.id
+  target_prefix = "s3-access-logs/"
+}
