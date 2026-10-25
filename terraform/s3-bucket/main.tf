@@ -82,3 +82,11 @@ resource "aws_s3_bucket_logging" "shipment_data" {
   target_bucket = aws_s3_bucket.shipment_logs.id
   target_prefix = "s3-access-logs/"
 }
+# Enable versioning on the logging bucket.
+resource "aws_s3_bucket_versioning" "shipment_logs" {
+  bucket = aws_s3_bucket.shipment_logs.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
