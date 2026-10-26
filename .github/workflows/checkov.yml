@@ -1,0 +1,144 @@
+name: Checkov IaC Security Scan
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  checkov:
+    name: Scan Terraform with Checkov
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Checkov
+        run: pip install checkov
+
+      - name: Run Checkov security scan
+        id: checkov
+        shell: bash
+        run: |
+          set +e
+
+          checkov \
+            --directory terraform/ \
+            --framework terraform \
+            --hard-fail-on HIGH \
+            --output cli \
+            --output json \
+            --output-file-path console,checkov-results.json \
+            2>&1 | tee checkov-results.txt
+
+          scan_exit_code=${PIPESTATUS[0]}
+
+          echo "exit_code=$scan_exit_code" >> "$GITHUB_OUTPUT"
+
+          exit 0
+
+      - name: Add scan results to workflow summary
+        if: always()
+        shell: bash
+        run: |
+          echo "## Checkov IaC Security Scan" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -f checkov-results.txt ]; then
+            echo '```text' >> "$GITHUB_STEP_SUMMARY"
+            cat checkov-results.txt >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Checkov output was not generated. Check the preceding workflow steps." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Comment scan results on pull request
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            const marker = '<!-- checkov-iac-scan -->';
+
+            let results = 'Checkov did not produce an output file. Check the workflow logs.';
+
+            if (fs.existsSync('checkov-results.txt')) {
+              results = fs.readFileSync('checkov-results.txt', 'utf8');
+            }
+
+            const maxLength = 45000;
+
+            if (results.length > maxLength) {
+              results = results.slice(-maxLength) +
+                '\n\nOutput truncated. See the workflow logs for the complete results.';
+            }
+
+            const exitCode = '${{ steps.checkov.outputs.exit_code }}';
+
+            const status = exitCode === '0'
+              ? 'Scan completed without HIGH-severity blocking findings.'
+              : 'Scan detected blocking findings or encountered an error. Review the results below.';
+
+            const body = [
+              marker,
+              '## Checkov IaC Security Scan',
+              '',
+              status,
+              '',
+              'HIGH-severity findings are configured to fail the workflow. Other findings are reported for review.',
+              '',
+              '<details>',
+              '<summary>Scan output</summary>',
+              '',
+              '```text',
+              results,
+              '```',
+              '',
+              '</details>'
+            ].join('\n');
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              { owner, repo, issue_number, per_page: 100 }
+            );
+
+            const existing = comments.find(comment =>
+              comment.body && comment.body.includes(marker)
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body
+              });
+            }
+
+      - name: Enforce security gate
+        if: steps.checkov.outputs.exit_code != '0'
+        run: |
+          echo "Checkov returned exit code ${{ steps.checkov.outputs.exit_code }}."
+          echo "Review the scan output and resolve blocking findings."
+          exit 1
